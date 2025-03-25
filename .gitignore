@@ -1,0 +1,7 @@
+ old/
+ _pycache_/
+ .pytest_cache/
+ smart-reno-trnsys/
+ *.txt
+ *lst
+ *pti
