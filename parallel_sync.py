@@ -73,29 +73,29 @@ def Initialization(TRNData):
     visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
     k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
 
-    # Pipe dimensions
-    rp_out = 0.02    # Pipe outer radius (m)
-    rp_in = 0.018      # Pipe inner radius (m)
-    D_s = 0.026       # Shank spacing (m)
-    epsilon = 1.0e-6    # Pipe roughness (m)
+    # # Pipe dimensions
+    # rp_out = 0.02    # Pipe outer radius (m)
+    # rp_in = 0.018      # Pipe inner radius (m)
+    # D_s = 0.026       # Shank spacing (m)
+    # epsilon = 1.0e-6    # Pipe roughness (m)
 
-    pos_single = [(-D_s, 0.), (D_s, 0.)]
+    # pos_single = [(-D_s, 0.), (D_s, 0.)]
 
-    # Pipe properties
-    k_p = 0.3           # Pipe thermal conductivity (W/m.K)
+    # # Pipe properties
+    # k_p = 0.3           # Pipe thermal conductivity (W/m.K)
 
-    # Grout properties
-    k_g = 3.0           # Grout thermal conductivity (W/m.K). 3 should be a good value to simulate water
+    # # Grout properties
+    # k_g = 3.0           # Grout thermal conductivity (W/m.K). 3 should be a good value to simulate water
 
-    # Pipe thermal resistance
-    R_p = gt.pipes.conduction_thermal_resistance_circular_pipe(
-        rp_in, rp_out, k_p)
-    # Fluid to inner pipe wall thermal resistance (Single U-tube and double
-    # U-tube in series)
-    h_f = gt.pipes.convective_heat_transfer_coefficient_circular_pipe(
-        m_flow_borehole, rp_in, visc_f, den_f, k_f, cp_f, epsilon)
+    # # Pipe thermal resistance
+    # R_p = gt.pipes.conduction_thermal_resistance_circular_pipe(
+    #     rp_in, rp_out, k_p)
+    # # Fluid to inner pipe wall thermal resistance (Single U-tube and double
+    # # U-tube in series)
+    # h_f = gt.pipes.convective_heat_transfer_coefficient_circular_pipe(
+    #     m_flow_borehole, rp_in, visc_f, den_f, k_f, cp_f, epsilon)
  
-    R_f_ser = 1.0/(h_f*2*np.pi*rp_in)
+    # R_f_ser = 1.0/(h_f*2*np.pi*rp_in)
 
 
     nSteps = TRNData[thisModule]["total number of time steps"]
