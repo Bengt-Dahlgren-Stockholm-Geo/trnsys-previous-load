@@ -101,7 +101,7 @@ def Initialization(TRNData):
     nSteps = TRNData[thisModule]["total number of time steps"]
 
     # Simulation parameters (must be consistent with TRNSYS!)
-    n_hours = 200 
+    n_hours = nSteps
     dt = 3600.
     tmax = n_hours * 3600.
     Nt = int(np.ceil(tmax/dt))
