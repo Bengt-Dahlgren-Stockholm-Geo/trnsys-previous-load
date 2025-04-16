@@ -11,26 +11,28 @@ import numpy as np
 from numpy.testing import assert_array_equal
 from openpyxl import load_workbook
 import pygfunction as gt
+from pygfunction.heat_transfer import finite_line_source
 from scipy.optimize import minimize
 from scipy.optimize import fsolve
 
 def trnsys_results():
-    deck_file_name = 'parallel_sync.dck'
+    deck_file_name = 'presim_parallel_sync.dck'
     
-    subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\08-ParallelSyncBoreholes\parallel_sync.dck","/h"])
+    subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\08b-PreSim_ParallelSyncBoreholes\presim_parallel_sync.dck","/h"])
 
-def objective_function(x, T_in, m_flow, cp_f, T_g, LoadAgg, H_list):
+def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
+
+    # x is the total load [W]
     Rb = 0.08
     LoadAgg.set_current_load(x/sum(H_list))
     deltaT_b = LoadAgg.temporal_superposition()
     T_b = T_g - deltaT_b
 
     Tf = T_b - x/sum(H_list) * Rb
-    T_f_in_single = Tf - ( x/2/m_flow/cp_f)
-    
+    T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
     return abs(T_f_in_single - T_in)
-
-def python_results():
+ 
+def python_results(): 
     # Load the borehole properties
     wb = load_workbook("GeoInput.xlsx")
     sheet = wb['Borehole']
@@ -54,7 +56,20 @@ def python_results():
         y_list[row-2] = sheet[f"E{row}"].value   
 
     # Create borehole object
-    borefield = [gt.boreholes.Borehole(H, D, rb, x, y) for H, D, rb, x, y in zip(H_list, D_list, rb_list, x_list, y_list)]
+    myborefield = [gt.boreholes.Borehole(H, D, rb, x, y) for H, D, rb, x, y in zip(H_list, D_list, rb_list, x_list, y_list)]
+
+    H_list = np.array(H_list, dtype=float)  # Convert to NumPy array for numerical operations
+    D_list = np.array(D_list, dtype=float)
+    rb_list = np.array(rb_list, dtype=float)
+    x_list = np.array(x_list, dtype=float)
+    y_list = np.array(y_list, dtype=float)
+    H_avg = np.mean(H_list) if H_list.size > 0 else None  # Avoid error if empty
+    D_avg = np.mean(D_list) if H_list.size > 0 else None  # Avoid error if empty
+    rb_avg = np.mean(rb_list) if H_list.size > 0 else None  # Avoid error if empty
+    x_avg = np.mean(x_list) if H_list.size > 0 else None  # Avoid error if empty
+    y_avg = np.mean(y_list) if H_list.size > 0 else None  # Avoid error if empty
+
+    eq_borehole = [gt.boreholes.Borehole(H_avg, D_avg, rb_avg, x_avg, y_avg)]
 
     # Load the ground properties
     sheet = wb['Ground']
@@ -63,26 +78,35 @@ def python_results():
     cp = float(sheet['C2'].value)
 
     T_g = 8
-    
-    m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
-    m_flow_network = m_flow_borehole * len(borefield)
 
+    # History of the borehole field
+    historical_load = np.array(pd.read_csv(r'historical_load.txt', delim_whitespace=True, skiprows=2, names=['Q [W]'])[0:8760*2])
+    n_presim = len(historical_load)
+
+    # Fluid properties
+    m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
+    m_flow_network = m_flow_borehole * len(myborefield)
+    # The fluid is propylene-glycol (20 %) at 20 degC
     fluid = gt.media.Fluid('MPG', 20.)
     cp_f = fluid.cp     # Fluid specific isobaric heat capacity (J/kg.K)
     den_f = fluid.rho   # Fluid density (kg/m3)
     visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
     k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
 
+    alpha = k/rho/cp
+
     # Simulation parameters (must be consistent with TRNSYS!)
+    nSteps = 8760
+    n_hours = nSteps + n_presim
     dt = 3600.
-    tmax = 200 * 3600.
+    tmax = n_hours * 3600.
     Nt = int(np.ceil(tmax/dt))
     time = dt * np.arange(1,Nt+1)
 
     LoadAgg = gt.load_aggregation.ClaessonJaved(dt,tmax)
     time_req = LoadAgg.get_times_for_simulation()
 
-    gFunc = gt.gfunction.gFunction(borefield, k/rho/cp, time=time_req)
+    gFunc = gt.gfunction.gFunction(myborefield, k/(rho*cp), time=time_req)
     LoadAgg.initialize(gFunc.gFunc/(2*np.pi*k))
 
     dT = np.zeros(Nt)
@@ -100,6 +124,7 @@ def python_results():
 
         LoadAgg.set_current_load(Q_tot[i] /sum(H_list))
         deltaT_b = LoadAgg.temporal_superposition()
+
         T_b = T_g - deltaT_b
 
         Tf = T_b - Q_tot[i]/sum(H_list)*0.08
@@ -107,25 +132,25 @@ def python_results():
 
         Tf_out[i] = Tf + ( Q_tot[i]/2/m_flow_network/cp_f)
 
-
-    np.savetxt('array_data.txt',Tf_out)
+    # np.savetxt('test_result_Tf_out.txt',Tf_out)
 
     return Tf_out
 
-def test_parallel_sync():
-    
+def test_presim_parallelsync():
+
+    results_saved = pd.read_csv(r'test\test_result_Tf_out.txt', delim_whitespace=True, skiprows=0, names=['Tout'])[2*8760+1:8760*3]
+ 
     # Create results with trnsys
     trnsys_results()
-    results_trnsys = pd.read_csv('parallel_sync.txt', delim_whitespace=True, skiprows=1, names=["TIME", "Tout"])
+    results_trnsys = pd.read_csv('presim_parallel_sync.txt', delim_whitespace=True, skiprows=1, names=["TIME", "Tout"])
     T_trnsys = np.array(results_trnsys['Tout'])
 
     # Create results with pygfunction
     T_python = python_results()
 
-
     # Compare
-    np.testing.assert_allclose(T_python[0:8760], T_trnsys[1:8761], atol=1e-3)  # Adjust `atol` for your use case
+    np.testing.assert_allclose(T_python[2*8760+1:8760*3], T_trnsys[1:8760], atol=1e-3)  # Adjust `atol` for your use case
 
-
+    np.testing.assert_allclose(T_trnsys[1:8760],np.array(results_saved['Tout']), atol=1e-3)
 if __name__ == "__main__":
     pytest.main()

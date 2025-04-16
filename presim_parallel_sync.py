@@ -9,6 +9,7 @@
 import os
 import pygfunction as gt
 import numpy as np
+import pandas as pd
 from openpyxl import load_workbook
 from scipy.optimize import minimize
 from scipy.optimize import fsolve
@@ -29,6 +30,7 @@ def Initialization(TRNData):
     global cp_f
     global Tf_in
     global Tf_out
+    global n_presim
     
     # Load the borehole properties
     wb = load_workbook("GeoInput.xlsx")
@@ -63,6 +65,11 @@ def Initialization(TRNData):
 
     T_g = 8
 
+
+    # History of the borehole field
+    historical_load = np.array(pd.read_csv(r'historical_load.txt', delim_whitespace=True, skiprows=2, names=['Q [W]'])[0:8760*2])
+    n_presim = len(historical_load)
+
     # Fluid properties
     m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
     m_flow_network = m_flow_borehole * len(borefield)
@@ -73,35 +80,11 @@ def Initialization(TRNData):
     visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
     k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
 
-    # # Pipe dimensions
-    # rp_out = 0.02    # Pipe outer radius (m)
-    # rp_in = 0.018      # Pipe inner radius (m)
-    # D_s = 0.026       # Shank spacing (m)
-    # epsilon = 1.0e-6    # Pipe roughness (m)
-
-    # pos_single = [(-D_s, 0.), (D_s, 0.)]
-
-    # # Pipe properties
-    # k_p = 0.3           # Pipe thermal conductivity (W/m.K)
-
-    # # Grout properties
-    # k_g = 3.0           # Grout thermal conductivity (W/m.K). 3 should be a good value to simulate water
-
-    # # Pipe thermal resistance
-    # R_p = gt.pipes.conduction_thermal_resistance_circular_pipe(
-    #     rp_in, rp_out, k_p)
-    # # Fluid to inner pipe wall thermal resistance (Single U-tube and double
-    # # U-tube in series)
-    # h_f = gt.pipes.convective_heat_transfer_coefficient_circular_pipe(
-    #     m_flow_borehole, rp_in, visc_f, den_f, k_f, cp_f, epsilon)
- 
-    # R_f_ser = 1.0/(h_f*2*np.pi*rp_in)
-
-
     nSteps = TRNData[thisModule]["total number of time steps"]
 
+
     # Simulation parameters (must be consistent with TRNSYS!)
-    n_hours = 200 
+    n_hours = nSteps + n_presim
     dt = 3600.
     tmax = n_hours * 3600.
     Nt = int(np.ceil(tmax/dt))
@@ -114,9 +97,16 @@ def Initialization(TRNData):
     LoadAgg.initialize(gFunc.gFunc/(2*np.pi*k))
 
     # Tf_fake = np.linspace(3,-2, 8760)
-    Q_tot = np.zeros(n_hours) + sum(H_list)*10
-    Tf_in = np.zeros(n_hours)
-    Tf_out = np.zeros(n_hours)
+    Q_tot = np.zeros(n_presim + nSteps) + sum(H_list)*10
+    Tf_in = np.zeros(nSteps)
+    Tf_out = np.zeros(nSteps)
+
+    for i in range(1,n_presim+1):
+        LoadAgg.next_time_step((i) * 3600.)
+        Q_tot[i-1] = historical_load[i-1]
+        LoadAgg.set_current_load(historical_load[i-1]/sum(H_list))
+        deltaT_b = LoadAgg.temporal_superposition()
+        T_b = T_g - deltaT_b
 
     def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
 
@@ -126,8 +116,6 @@ def Initialization(TRNData):
         deltaT_b = LoadAgg.temporal_superposition()
         T_b = T_g - deltaT_b
 
-        # T_f_in_single = SingleUTube.get_inlet_temperature(
-        #                     x, T_b, m_flow, cp_f)
         Tf = T_b - x/sum(H_list) * Rb
         T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
         return abs(T_f_in_single - T_in)
@@ -154,29 +142,31 @@ def Iteration(TRNData):
     m_flow_network = TRNData[thisModule]["inputs"][1]
     stepNo = TRNData[thisModule]["current time step number"]
 
-    LoadAgg.next_time_step(stepNo * 3600.)
+    LoadAgg.next_time_step((stepNo+n_presim) * 3600.)
     
-    solution = minimize(objective_function, Q_tot[stepNo - 2], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
-    Q_tot[stepNo-1] = solution.x[0]
+    solution = minimize(objective_function, Q_tot[(n_presim + stepNo) - 2], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
+    Q_tot[(n_presim + stepNo)-1] = solution.x[0]
 
-    LoadAgg.set_current_load(Q_tot[stepNo-1] /sum(H_list))
+    LoadAgg.set_current_load(Q_tot[(n_presim + stepNo)-1] /sum(H_list))
     deltaT_b = LoadAgg.temporal_superposition()
     T_b = T_g - deltaT_b
 
-    Tf = T_b - Q_tot[stepNo-1]/sum(H_list)*0.08
-    Tf_in[stepNo -1] = Tf - ( Q_tot[stepNo-1]/2/m_flow_network/cp_f)
+    Tf = T_b - Q_tot[(n_presim + stepNo)-1]/sum(H_list)*0.08
+    Tf_in[stepNo -1] = Tf - ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)
 
-    Tf_out[stepNo -1] = Tf + ( Q_tot[stepNo-1]/2/m_flow_network/cp_f)
+    Tf_out[stepNo -1] = Tf + ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)
 
 
     # Calculate the outputs
 
     # Set outputs in TRNData
     TRNData[thisModule]["outputs"][0] = Tf_out[stepNo -1]
-    TRNData[thisModule]["outputs"][1] = Q_tot[stepNo -1]
+    TRNData[thisModule]["outputs"][1] = Q_tot[(n_presim + stepNo) -1]
 
     with open("Result.txt","a") as file:
         file.write(str(Tf_out[stepNo -1] )+"\n")
+    with open("stepNo.txt","a") as file:
+            file.write(str(stepNo)+"\n")
 
     return
 
