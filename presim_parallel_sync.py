@@ -11,8 +11,8 @@ import pygfunction as gt
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
-from scipy.optimize import minimize
-from scipy.optimize import fsolve
+from scipy.optimize import minimize_scalar
+# from scipy.optimize import fsolve
 
 thisModule = os.path.splitext(os.path.basename(__file__))[0]
 
@@ -31,7 +31,9 @@ def Initialization(TRNData):
     global Tf_in
     global Tf_out
     global n_presim
-    
+    global dt
+    global Rb
+
     # Load the borehole properties
     wb = load_workbook("GeoInput.xlsx")
     sheet = wb['Borehole']
@@ -63,7 +65,13 @@ def Initialization(TRNData):
     rho = float(sheet['B2'].value)
     cp = float(sheet['C2'].value)
 
-    T_g = 8
+    # T_g = 8
+    T_g = float(sheet['E2'].value)
+    Rb = float(sheet['F2'].value)
+
+    # # Fluid properties
+    # sheet = wb['Fluid']
+    # cp_f = float(sheet['A2'].value)
 
 
     # History of the borehole field
@@ -71,22 +79,23 @@ def Initialization(TRNData):
     n_presim = len(historical_load)
 
     # Fluid properties
-    m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
-    m_flow_network = m_flow_borehole * len(borefield)
+    # m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
+    # m_flow_network = m_flow_borehole * len(borefield)
     # The fluid is propylene-glycol (20 %) at 20 degC
     fluid = gt.media.Fluid('MPG', 20.)
     cp_f = fluid.cp     # Fluid specific isobaric heat capacity (J/kg.K)
-    den_f = fluid.rho   # Fluid density (kg/m3)
-    visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
-    k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
+    # den_f = fluid.rho   # Fluid density (kg/m3)
+    # visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
+    # k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
 
     nSteps = TRNData[thisModule]["total number of time steps"]
 
 
     # Simulation parameters (must be consistent with TRNSYS!)
     n_hours = nSteps + n_presim
-    dt = 3600.
-    tmax = n_hours * 3600.
+    # dt = 3600.
+    dt = TRNData[thisModule]["simulation time step"] * 3600.
+    tmax = n_hours * dt
     Nt = int(np.ceil(tmax/dt))
     time = dt * np.arange(1,Nt+1)
 
@@ -101,25 +110,34 @@ def Initialization(TRNData):
     Tf_in = np.zeros(nSteps)
     Tf_out = np.zeros(nSteps)
 
-    for i in range(1,n_presim+1):
-        LoadAgg.next_time_step((i) * 3600.)
+    for i in range(1,n_presim+1, dt):
+        LoadAgg.next_time_step((i) * dt)
         Q_tot[i-1] = historical_load[i-1]
         LoadAgg.set_current_load(historical_load[i-1]/sum(H_list))
         deltaT_b = LoadAgg.temporal_superposition()
         T_b = T_g - deltaT_b
 
-    def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
+    # def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
 
-        # x is the total load [W]
-        Rb = 0.08
+    #     # x is the total load [W]
+    #     Rb = 0.08
+    #     LoadAgg.set_current_load(x/sum(H_list))
+    #     deltaT_b = LoadAgg.temporal_superposition()
+    #     T_b = T_g - deltaT_b
+
+    #     Tf = T_b - x/sum(H_list) * Rb
+    #     T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
+    #     return abs(T_f_in_single - T_in)
+    def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list, Rb):
+        # # x is the total load [W]    
         LoadAgg.set_current_load(x/sum(H_list))
         deltaT_b = LoadAgg.temporal_superposition()
         T_b = T_g - deltaT_b
 
         Tf = T_b - x/sum(H_list) * Rb
         T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
+        
         return abs(T_f_in_single - T_in)
-
     return
 
 
@@ -142,16 +160,19 @@ def Iteration(TRNData):
     m_flow_network = TRNData[thisModule]["inputs"][1]
     stepNo = TRNData[thisModule]["current time step number"]
 
-    LoadAgg.next_time_step((stepNo+n_presim) * 3600.)
+    LoadAgg.next_time_step((stepNo+n_presim) * dt)
     
-    solution = minimize(objective_function, Q_tot[(n_presim + stepNo) - 2], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
-    Q_tot[(n_presim + stepNo)-1] = solution.x[0]
+    # solution = minimize(objective_function, Q_tot[(n_presim + stepNo) - 2], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
+    solution = minimize_scalar(objective_function, args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list,Rb),  method='brent')
+
+    # Q_tot[(n_presim + stepNo)-1] = solution.x[0]
+    Q_tot[stepNo-1] = solution.x
 
     LoadAgg.set_current_load(Q_tot[(n_presim + stepNo)-1] /sum(H_list))
     deltaT_b = LoadAgg.temporal_superposition()
     T_b = T_g - deltaT_b
 
-    Tf = T_b - Q_tot[(n_presim + stepNo)-1]/sum(H_list)*0.08
+    Tf = T_b - Q_tot[(n_presim + stepNo)-1]/sum(H_list)*Rb
     Tf_in[stepNo -1] = Tf - ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)
 
     Tf_out[stepNo -1] = Tf + ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)

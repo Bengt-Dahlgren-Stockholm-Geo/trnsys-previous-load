@@ -12,24 +12,34 @@ from numpy.testing import assert_array_equal
 from openpyxl import load_workbook
 import pygfunction as gt
 from pygfunction.heat_transfer import finite_line_source
-from scipy.optimize import minimize
-from scipy.optimize import fsolve
+from scipy.optimize import minimize_scalar
+# from scipy.optimize import fsolve
 
 def trnsys_results():
     deck_file_name = 'presim_parallel_sync.dck'
     
     subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\08b-PreSim_ParallelSyncBoreholes\presim_parallel_sync.dck","/h"])
 
-def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
+# def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
 
-    # x is the total load [W]
-    Rb = 0.08
+#     # x is the total load [W]
+#     Rb = 0.08
+#     LoadAgg.set_current_load(x/sum(H_list))
+#     deltaT_b = LoadAgg.temporal_superposition()
+#     T_b = T_g - deltaT_b
+
+#     Tf = T_b - x/sum(H_list) * Rb
+#     T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
+#     return abs(T_f_in_single - T_in)
+def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list, Rb):
+    # # x is the total load [W]    
     LoadAgg.set_current_load(x/sum(H_list))
     deltaT_b = LoadAgg.temporal_superposition()
     T_b = T_g - deltaT_b
 
     Tf = T_b - x/sum(H_list) * Rb
     T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
+    
     return abs(T_f_in_single - T_in)
  
 def python_results(): 
@@ -77,23 +87,30 @@ def python_results():
     rho = float(sheet['B2'].value)
     cp = float(sheet['C2'].value)
 
-    T_g = 8
+    # T_g = 8
+    T_g = float(sheet['E2'].value)
+    Rb = float(sheet['F2'].value)
+
+    # Fluid properties
+    # sheet = wb['Fluid']
+    # cp_f = float(sheet['A2'].value)
+
 
     # History of the borehole field
     historical_load = np.array(pd.read_csv(r'historical_load.txt', delim_whitespace=True, skiprows=2, names=['Q [W]'])[0:8760*2])
     n_presim = len(historical_load)
 
-    # Fluid properties
+    # # Fluid properties
     m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
     m_flow_network = m_flow_borehole * len(myborefield)
-    # The fluid is propylene-glycol (20 %) at 20 degC
+    # # The fluid is propylene-glycol (20 %) at 20 degC
     fluid = gt.media.Fluid('MPG', 20.)
     cp_f = fluid.cp     # Fluid specific isobaric heat capacity (J/kg.K)
-    den_f = fluid.rho   # Fluid density (kg/m3)
-    visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
-    k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
+    # den_f = fluid.rho   # Fluid density (kg/m3)
+    # visc_f = fluid.mu   # Fluid dynamic viscosity (kg/m.s)
+    # k_f = fluid.k       # Fluid thermal conductivity (W/m.K)
 
-    alpha = k/rho/cp
+    # alpha = k/rho/cp
 
     # Simulation parameters (must be consistent with TRNSYS!)
     nSteps = 8760
@@ -118,16 +135,18 @@ def python_results():
 
         LoadAgg.next_time_step(i * 3600.)
         
-        solution = minimize(objective_function, Q_tot[i], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
+        # solution = minimize(objective_function, Q_tot[i], args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list))
+        solution = minimize_scalar(objective_function, args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list,Rb),  method='brent')
 
-        Q_tot[i] = solution.x[0]
+        # Q_tot[i] = solution.x[0]
+        Q_tot[i] = solution.x
 
         LoadAgg.set_current_load(Q_tot[i] /sum(H_list))
         deltaT_b = LoadAgg.temporal_superposition()
 
         T_b = T_g - deltaT_b
 
-        Tf = T_b - Q_tot[i]/sum(H_list)*0.08
+        Tf = T_b - Q_tot[i]/sum(H_list)*Rb
         Tf_in[i] = Tf - ( Q_tot[i]/2/m_flow_network/cp_f)
 
         Tf_out[i] = Tf + ( Q_tot[i]/2/m_flow_network/cp_f)
