@@ -59,6 +59,8 @@ def Initialization(TRNData):
     # Create borehole object
     borefield = [gt.boreholes.Borehole(H, D, rb, x, y) for H, D, rb, x, y in zip(H_list, D_list, rb_list, x_list, y_list)]
 
+    presim_steps = int(sheet["H2"].value)
+
     # Load the ground properties
     sheet = wb['Ground']
     k = float(sheet['A2'].value)
@@ -76,7 +78,12 @@ def Initialization(TRNData):
 
     # History of the borehole field
     historical_load = np.array(pd.read_csv(r'historical_load.txt', delim_whitespace=True, skiprows=2, names=['Q [W]'])[0:8760*2])
+    # historical_load = np.array(pd.read_csv(r'historical_load.txt', delim_whitespace=True, skiprows=2, names=['Q [W]'])[0:presim_steps])
     n_presim = len(historical_load)
+    # with open("n_presim_debug.txt","w") as file:
+    #     file.write(str(n_presim)+"\n")
+
+
 
     # Fluid properties
     # m_flow_borehole = 0.6     # Total fluid mass flow rate (kg/s)
@@ -93,7 +100,7 @@ def Initialization(TRNData):
 
     # Simulation parameters (must be consistent with TRNSYS!)
     n_hours = nSteps + n_presim
-    # dt = 3600.
+
     dt = TRNData[thisModule]["simulation time step"] * 3600.
     tmax = n_hours * dt
     Nt = int(np.ceil(tmax/dt))
@@ -106,28 +113,21 @@ def Initialization(TRNData):
     LoadAgg.initialize(gFunc.gFunc/(2*np.pi*k))
 
     # Tf_fake = np.linspace(3,-2, 8760)
-    Q_tot = np.zeros(n_presim + nSteps) + sum(H_list)*10
+    Q_tot = np.zeros(n_hours) + sum(H_list)*10
     Tf_in = np.zeros(nSteps)
     Tf_out = np.zeros(nSteps)
 
-    for i in range(1,n_presim+1, dt):
+    # with open("Tb_debug.txt","w") as file:
+
+    for i in range(1,n_presim+1):
         LoadAgg.next_time_step((i) * dt)
         Q_tot[i-1] = historical_load[i-1]
         LoadAgg.set_current_load(historical_load[i-1]/sum(H_list))
         deltaT_b = LoadAgg.temporal_superposition()
         T_b = T_g - deltaT_b
+    
+            # file.write(str(T_b)+"\n")
 
-    # def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
-
-    #     # x is the total load [W]
-    #     Rb = 0.08
-    #     LoadAgg.set_current_load(x/sum(H_list))
-    #     deltaT_b = LoadAgg.temporal_superposition()
-    #     T_b = T_g - deltaT_b
-
-    #     Tf = T_b - x/sum(H_list) * Rb
-    #     T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
-    #     return abs(T_f_in_single - T_in)
     def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list, Rb):
         # # x is the total load [W]    
         LoadAgg.set_current_load(x/sum(H_list))
@@ -145,9 +145,9 @@ def Initialization(TRNData):
 # ----------------------------------------------------------------------------------------------------------------------
 def StartTime(TRNData):
 
-    with open("Result.txt","w") as file:
+    # with open("Result.txt","w") as file:
         # file.write(str(Tf_out[stepNo])+"\n")
-        pass
+        # pass
 
     return
 
@@ -166,13 +166,15 @@ def Iteration(TRNData):
     solution = minimize_scalar(objective_function, args = (Tin, m_flow_network, cp_f, T_g, LoadAgg, H_list,Rb),  method='brent')
 
     # Q_tot[(n_presim + stepNo)-1] = solution.x[0]
-    Q_tot[stepNo-1] = solution.x
-
+    Q_tot[(n_presim + stepNo)-1] = solution.x
+    # LoadAgg.set_current_load(Q_tot[(stepNo)-1] /sum(H_list))
     LoadAgg.set_current_load(Q_tot[(n_presim + stepNo)-1] /sum(H_list))
     deltaT_b = LoadAgg.temporal_superposition()
     T_b = T_g - deltaT_b
 
     Tf = T_b - Q_tot[(n_presim + stepNo)-1]/sum(H_list)*Rb
+    # Tf = T_b - Q_tot[(stepNo)-1]/sum(H_list)*Rb
+
     Tf_in[stepNo -1] = Tf - ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)
 
     Tf_out[stepNo -1] = Tf + ( Q_tot[(n_presim + stepNo)-1]/2/m_flow_network/cp_f)
@@ -184,10 +186,10 @@ def Iteration(TRNData):
     TRNData[thisModule]["outputs"][0] = Tf_out[stepNo -1]
     TRNData[thisModule]["outputs"][1] = Q_tot[(n_presim + stepNo) -1]
 
-    with open("Result.txt","a") as file:
-        file.write(str(Tf_out[stepNo -1] )+"\n")
-    with open("stepNo.txt","a") as file:
-            file.write(str(stepNo)+"\n")
+    # with open("Result.txt","a") as file:
+    #     file.write(str(Tf_out[stepNo -1] )+"\n")
+    # with open("stepNo.txt","a") as file:
+    #         file.write(str(stepNo)+"\n")
 
     return
 

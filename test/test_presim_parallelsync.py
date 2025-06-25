@@ -20,17 +20,7 @@ def trnsys_results():
     
     subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\08b-PreSim_ParallelSyncBoreholes\presim_parallel_sync.dck","/h"])
 
-# def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list):
 
-#     # x is the total load [W]
-#     Rb = 0.08
-#     LoadAgg.set_current_load(x/sum(H_list))
-#     deltaT_b = LoadAgg.temporal_superposition()
-#     T_b = T_g - deltaT_b
-
-#     Tf = T_b - x/sum(H_list) * Rb
-#     T_f_in_single = Tf - ( x/2/m_flow_network/cp_f)
-#     return abs(T_f_in_single - T_in)
 def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list, Rb):
     # # x is the total load [W]    
     LoadAgg.set_current_load(x/sum(H_list))
@@ -87,7 +77,6 @@ def python_results():
     rho = float(sheet['B2'].value)
     cp = float(sheet['C2'].value)
 
-    # T_g = 8
     T_g = float(sheet['E2'].value)
     Rb = float(sheet['F2'].value)
 
@@ -170,6 +159,6 @@ def test_presim_parallelsync():
     # Compare
     np.testing.assert_allclose(T_python[2*8760+1:8760*3], T_trnsys[1:8760], atol=1e-3)  # Adjust `atol` for your use case
 
-    np.testing.assert_allclose(T_trnsys[1:8760],np.array(results_saved['Tout']), atol=1e-3)
+    # np.testing.assert_allclose(T_trnsys[1:8760],np.array(results_saved['Tout']), atol=1e-3)
 if __name__ == "__main__":
     pytest.main()

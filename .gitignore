@@ -1,7 +1,12 @@
- old/
- _pycache_/
- .pytest_cache/
- smart-reno-trnsys/
- *.txt
- *lst
- *pti
+old/
+notebooks/
+__pycache__/
+test/__pycache__/
+.pytest_cache/
+smart-reno-trnsys/
+*.txt
+!requirements.txt
+*lst
+*pti
+*log
+*dck
