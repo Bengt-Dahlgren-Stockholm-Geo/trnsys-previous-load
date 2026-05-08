@@ -18,7 +18,7 @@ from scipy.optimize import minimize_scalar
 def trnsys_results():
     deck_file_name = 'presim_parallel_sync.dck'
     
-    subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\08b-PreSim_ParallelSyncBoreholes\presim_parallel_sync.dck","/h"])
+    subprocess.run([r"C:\Trnsys18\Exe\TRNExe64.exe",r"C:\TRNSYS18\TRNLib\CallingPython-Cffi\Examples\trnsys-previous-load\presim_parallel_sync.dck","/h"])
 
 
 def objective_function(x, T_in, m_flow_network, cp_f, T_g, LoadAgg, H_list, Rb):
@@ -140,7 +140,7 @@ def python_results():
 
         Tf_out[i] = Tf + ( Q_tot[i]/2/m_flow_network/cp_f)
 
-    # np.savetxt('test_result_Tf_out.txt',Tf_out)
+    np.savetxt('test_result_Tf_out.txt',Tf_out)
 
     return Tf_out
 
